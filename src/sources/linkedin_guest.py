@@ -39,26 +39,62 @@ _HEADERS = {
 class LinkedInGuestSource(JobSource):
     name = "linkedin"
 
-    def __init__(self, timeout: int = 15):
+    # The guest endpoint returns ~25 cards per page, paginated via `start`.
+    _PAGE_SIZE = 25
+
+    def __init__(
+        self,
+        timeout: int = 15,
+        max_pages: int = 4,
+        page_delay: float = 1.5,
+    ):
         self.timeout = timeout
+        self.max_pages = max_pages  # how deep to paginate per search
+        self.page_delay = page_delay  # polite pause between page requests
         self._session = requests.Session()
         self._session.headers.update(_HEADERS)
 
     def fetch(self, search: Search, posted_within: str) -> list[Job]:
-        params = {
-            "keywords": search.keywords,
-            "location": search.location,
-            "f_TPR": posted_within,  # time-posted range, e.g. r3600 = last hour
-            "sortBy": "DD",  # date descending -> newest first
-            "start": 0,
-        }
-        url = f"{_ENDPOINT}?{urlencode(params)}"
+        """Paginate newest-first until we run out of results or hit max_pages.
 
-        html = self._get_with_backoff(url)
-        if html is None:
-            return []
+        Returns jobs de-duplicated by id, preserving newest-first order.
+        """
+        collected: list[Job] = []
+        seen_ids: set[str] = set()
 
-        return self._parse(html)
+        for page in range(self.max_pages):
+            params = {
+                "keywords": search.keywords,
+                "location": search.location,
+                "f_TPR": posted_within,  # time-posted range, e.g. r3600 = last hour
+                "sortBy": "DD",  # date descending -> newest first
+                "start": page * self._PAGE_SIZE,
+            }
+            url = f"{_ENDPOINT}?{urlencode(params)}"
+
+            html = self._get_with_backoff(url)
+            if html is None:
+                break
+
+            page_jobs = self._parse(html)
+            if not page_jobs:
+                break  # no more results
+
+            new_on_page = 0
+            for job in page_jobs:
+                if job.id not in seen_ids:
+                    seen_ids.add(job.id)
+                    collected.append(job)
+                    new_on_page += 1
+
+            # Last page is often shorter than a full page -> stop early.
+            if len(page_jobs) < self._PAGE_SIZE or new_on_page == 0:
+                break
+
+            if page < self.max_pages - 1:
+                time.sleep(self.page_delay)  # be polite between pages
+
+        return collected
 
     def _get_with_backoff(self, url: str, attempts: int = 3) -> str | None:
         delay = 2

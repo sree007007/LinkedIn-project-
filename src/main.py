@@ -1,6 +1,7 @@
 """Entrypoint: wire config -> source -> notifier -> poller and run."""
 from __future__ import annotations
 
+import os
 import sys
 
 from .config import load_config
@@ -30,7 +31,7 @@ def main() -> int:
 
     source = get_source(config.source)
     notifier = build_notifier(config)
-    store = SeenStore()
+    store = SeenStore(os.getenv("JOBS_DB_PATH", "jobs.db"))
 
     poller = Poller(config, source, notifier, store)
 

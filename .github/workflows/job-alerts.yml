@@ -1,0 +1,52 @@
+name: Job Alerts
+
+# Free "always-on" option: GitHub runs this on a schedule and pushes any new
+# matching jobs to Telegram. No server needed.
+#
+# Setup:
+#   1. Repo Settings -> Secrets and variables -> Actions -> add:
+#        TELEGRAM_BOT_TOKEN   and   TELEGRAM_CHAT_ID
+#   2. Commit a config.yaml (copy from config.example.yaml; it has no secrets).
+#   3. That's it — it runs every 15 minutes.
+#
+# Note: GitHub's cron is best-effort and often delayed several minutes under
+# load, and 5 min is the minimum interval. For tighter timing use the Docker
+# deployment (docker-compose up -d) on an always-on host instead.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+
+concurrency:
+  group: job-alerts
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      # Carry jobs.db between runs so we don't re-notify on already-seen jobs.
+      - name: Restore dedupe state
+        uses: actions/cache@v4
+        with:
+          path: jobs.db
+          key: jobs-db-${{ github.run_id }}
+          restore-keys: jobs-db-
+
+      - name: Use example config if none committed
+        run: test -f config.yaml || cp config.example.yaml config.yaml
+
+      - name: Poll once and notify
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m src.main --once
