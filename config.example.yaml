@@ -1,0 +1,21 @@
+# Job source: "linkedin" (public guest endpoint) or "mock" (offline test feed)
+source: linkedin
+
+# How often to poll, in seconds. KEEP THIS HIGH (>= 120) to avoid being blocked.
+poll_interval_seconds: 300
+
+# LinkedIn "time posted" filter applied to every search:
+#   r3600  = last hour      (recommended for near-real-time)
+#   r86400 = last 24 hours
+posted_within: "r3600"
+
+# One or more searches. Each is polled every interval.
+searches:
+  - keywords: "python backend engineer"
+    location: "Remote"
+    # Optional filters applied to the job title + company:
+    include: ["python", "backend"]   # must contain at least one (omit = allow all)
+    exclude: ["senior", "lead", "principal"]   # skip if any appears
+
+  - keywords: "data analyst"
+    location: "Bengaluru, Karnataka, India"
